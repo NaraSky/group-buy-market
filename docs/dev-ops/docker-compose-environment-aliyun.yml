@@ -1,0 +1,125 @@
+# 命令执行 docker-compose -f docker-compose-environment-aliyun.yml up -d
+# docker 代理和使用文档；https://bugstack.cn/md/road-map/docker.html
+# 定义 Docker Compose 文件的版本为 3.9
+version: '3.9'
+
+# 定义服务集合
+services:
+  # MySQL 数据库服务
+  mysql:
+    # 使用阿里云镜像仓库的 MySQL 8.0.32 镜像
+    image: registry.cn-hangzhou.aliyuncs.com/xfg-studio/mysql:8.0.32
+    # 设置容器名称为 mysql
+    container_name: mysql
+    # 设置启动时的命令，指定 MySQL 使用 mysql_native_password 作为默认身份验证插件
+    command: --default-authentication-plugin=mysql_native_password
+    # 当容器停止时自动重启
+    restart: always
+    # 配置环境变量
+    environment:
+      TZ: Asia/Shanghai  # 设置时区为上海
+      MYSQL_ROOT_PASSWORD: mysql_1120  # 设置 MySQL root 用户的密码
+    # 将主机的端口 13306 映射到容器的 3306 端口
+    ports:
+      - "13306:3306"
+    # 将本地目录挂载到容器内，用于初始化数据库
+    volumes:
+      - ./mysql/sql:/docker-entrypoint-initdb.d
+    # 健康检查配置
+    healthcheck:
+      test: [ "CMD", "mysqladmin" ,"ping", "-h", "localhost" ]  # 测试命令，检查 MySQL 服务是否可用
+      interval: 5s  # 每 5 秒检查一次
+      timeout: 10s  # 每次检查的超时时间为 10 秒
+      retries: 10  # 最大重试次数为 10 次
+      start_period: 15s  # 容器启动后 15 秒开始健康检查
+    # 将服务加入名为 my-network 的网络
+    networks:
+      - my-network
+
+  # phpMyAdmin 服务，用于管理 MySQL 的图形界面
+  phpmyadmin:
+    # 使用阿里云镜像仓库的 phpMyAdmin 5.2.1 镜像
+    image: registry.cn-hangzhou.aliyuncs.com/xfg-studio/phpmyadmin:5.2.1
+    # 设置容器名称为 phpmyadmin
+    container_name: phpmyadmin
+    # 设置主机名为 phpmyadmin
+    hostname: phpmyadmin
+    # 将主机的端口 8899 映射到容器的 80 端口
+    ports:
+      - 8899:80
+    # 配置环境变量
+    environment:
+      - PMA_HOST=mysql  # 指定 MySQL 服务主机名
+      - PMA_PORT=3306  # 指定 MySQL 服务端口
+      - MYSQL_ROOT_PASSWORD=mysql_1120  # MySQL root 用户的密码（应与实际密码一致）
+    # 设置依赖关系：只有当 mysql 服务健康时才启动
+    depends_on:
+      mysql:
+        condition: service_healthy
+    # 将服务加入名为 my-network 的网络
+    networks:
+      - my-network
+
+  # Redis 数据库服务
+  redis:
+    # 使用阿里云镜像仓库的 Redis 6.2 镜像
+    image: registry.cn-hangzhou.aliyuncs.com/xfg-studio/redis:6.2
+    # 设置容器名称为 redis
+    container_name: redis
+    # 当容器停止时自动重启
+    restart: always
+    # 设置主机名为 redis
+    hostname: redis
+    # 授予容器特权权限
+    privileged: true
+    # 将主机的端口 16379 映射到容器的 6379 端口
+    ports:
+      - 16379:6379
+    # 挂载本地 Redis 配置文件到容器内
+    volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
+    # 使用自定义配置文件启动 Redis 服务
+    command: redis-server /usr/local/etc/redis/redis.conf
+    # 将服务加入名为 my-network 的网络
+    networks:
+      - my-network
+    # 健康检查配置
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]  # 测试 Redis 服务是否响应 PING 命令
+      interval: 10s  # 每 10 秒检查一次
+      timeout: 5s  # 每次检查的超时时间为 5 秒
+      retries: 3  # 最大重试次数为 3 次
+
+  # Redis 管理界面（Redis Commander）
+  redis-admin:
+    # 使用阿里云镜像仓库的 Redis Commander 0.8.0 镜像
+    image: registry.cn-hangzhou.aliyuncs.com/xfg-studio/redis-commander:0.8.0
+    # 设置容器名称为 redis-admin
+    container_name: redis-admin
+    # 设置主机名为 redis-commander
+    hostname: redis-commander
+    # 当容器停止时自动重启
+    restart: always
+    # 将主机的端口 8081 映射到容器的 8081 端口
+    ports:
+      - 8081:8081
+    # 配置环境变量
+    environment:
+      - REDIS_HOSTS=local:redis:6379  # 指定 Redis 主机地址
+      - HTTP_USER=admin  # Redis 管理界面的用户名
+      - HTTP_PASSWORD=admin  # Redis 管理界面的密码
+      - LANG=C.UTF-8  # 设置语言环境
+      - LANGUAGE=C.UTF-8
+      - LC_ALL=C.UTF-8
+    # 设置依赖关系：只有当 redis 服务健康时才启动
+    depends_on:
+      redis:
+        condition: service_healthy
+    # 将服务加入名为 my-network 的网络
+    networks:
+      - my-network
+
+# 定义自定义网络 my-network，使用桥接模式
+networks:
+  my-network:
+    driver: bridge
